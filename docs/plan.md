@@ -92,7 +92,7 @@ New repo skeleton + FreeRADIUS Docker container with PostgreSQL SQL backend and 
 
 ## Phase 2: RADIUS Integration -- Supabase Schema + Python Client
 
-**Status: COMPLETE**
+**Status: COMPLETE + VERIFIED**
 
 ### Goal
 Add FreeRADIUS tables to Supabase, implement sqlcounter for monthly budgets, build the Python RADIUS client wrapper.
@@ -111,28 +111,62 @@ Add FreeRADIUS tables to Supabase, implement sqlcounter for monthly budgets, bui
 - Updated `sites-available/default` with `monthly_token_counter` in authorize section
 - Fixed Dockerfile COPY paths and added mods-enabled symlinks
 
-### Verification (pending — requires live infra)
-- `iron-claw auth-test` authenticates against Supabase SQL backend, shows VSA grants
-- Acct-Start/Interim/Stop write to `radacct` table (verify via SQL query)
-- Set monthly budget low, exceed it, verify next auth is rejected
+#### Integration bug fixes (PR #3, merged)
+9 bugs found and fixed during first live integration test on macOS ARM64 (Mac Mini):
 
-### Integration test sequence
+| File | Bug | Fix |
+|------|-----|-----|
+| `docker/Dockerfile` | AL2023 `freeradius-postgresql-3.2.5` has hard dep on `freeradius=3.2.5`, conflicts with base image's 3.2.8 | `dnf download` + `rpm --nodeps` (ABI-compatible within 3.2.x) |
+| `docker/Dockerfile` | Missing `libpq.so.5` at runtime | Added `postgresql-libs` to `dnf install` |
+| `raddb/mods-available/sql` | `${ENV:VAR}` is not valid FreeRADIUS syntax | Changed to `$ENV{VAR}` |
+| `raddb/mods-config/.../queries.conf` | `${acct_table1}` not found from nested accounting sections | Changed to `${....acct_table1}` (4 dots = 4 scope levels up to sql{}) |
+| `raddb/mods-config/.../queries.conf` | `SQL-User-Name` was empty in all queries | Added `sql_user_name = "%{User-Name}"` |
+| `raddb/mods-available/sqlcounter` | Missing required `key` config item | Added `key = User-Name` |
+| `raddb/dictionary.misstable` | `MT-Monthly-Used` attribute conflicts with sqlcounter internal registration | Removed from dictionary (sqlcounter creates it) |
+| `raddb/clients.conf` | Only `127.0.0.1`/`::1` clients — Docker bridge traffic dropped silently | Added `172.16.0.0/12` client for Docker bridge |
+| `docker/docker-compose.yml` | `network_mode: host` doesn't forward UDP on Docker Desktop macOS | Switched to explicit `ports: 1812:1812/udp, 1813:1813/udp` |
+
+### Verification (PASSED — 2026-02-15)
+- `radiusd -C` config syntax check: **PASS**
+- `radtest iron-claw-scraper scraper-secret localhost 0 testing123`: **Access-Accept** with all 10 VSA reply attributes
+- 12/12 integration tests pass (8 auth + 4 accounting) in 3.12s
+- `radacct` table confirms token counts in `acctinputoctets` and match counts in `acctoutputoctets`
+- `radpostauth` table confirms post-auth logging
+- Monthly budget enforcement not yet tested (requires exceeding budget)
+
+### Integration test sequence (updated for macOS)
 ```bash
-# 1. Start Supabase local (applies RADIUS tables migration)
-cd ~/gitrepos/missing-table/supabase-local && npx supabase db reset
+# 1. Ensure Supabase local is running (applies RADIUS tables migration)
+#    If tables don't exist yet, apply migration directly:
+PGPASSWORD=postgres psql -h localhost -p 54332 -U postgres -d postgres \
+  -f ~/gitrepos/missing-table/supabase-local/migrations/20260215000000_add_radius_tables.sql
 
-# 2. Build & start FreeRADIUS pointed at Supabase
-cd ~/gitrepos/iron-claw/docker && docker compose up -d --build
+# 2. Build & start FreeRADIUS pointed at Supabase local
+cd ~/gitrepos/iron-claw/docker
+DOCKER_DEFAULT_PLATFORM=linux/amd64 \
+  RADIUS_SQL_SERVER=host.docker.internal \
+  RADIUS_SQL_PORT=54332 \
+  docker compose up -d --build
 
 # 3. Verify config syntax
 docker exec iron-claw-radius radiusd -C
 
-# 4. Test auth
-radtest iron-claw-scraper scraper-secret localhost 0 testing123
+# 4. Test auth (from inside container — Docker Desktop Mac UDP limitation)
+docker exec iron-claw-radius radtest iron-claw-scraper scraper-secret localhost 0 testing123
 
-# 5. Run integration tests
-cd ~/gitrepos/iron-claw && uv run pytest tests/ -m integration -v
+# 5. Run integration tests (from Docker container on same network)
+docker run --rm --platform linux/amd64 --network docker_default \
+  -v ~/gitrepos/iron-claw:/app -w /app \
+  python:3.14-slim \
+  sh -c "pip install pyrad pytest -q && RADIUS_SERVER=iron-claw-radius \
+    pytest tests/test_auth.py tests/test_accounting.py -m integration -v"
 ```
+
+### Lessons learned
+- **FreeRADIUS `$INCLUDE` scope**: `${var}` references in included files use relative scoping — nested sections need `${....var}` (dots = levels up) to reach parent module variables.
+- **Docker Desktop macOS + UDP**: `network_mode: host` does not reliably forward UDP ports from Mac host to container. Use explicit port mapping + run tests from a container on the same Docker network.
+- **RPM version pinning**: Custom-built RPMs (3.2.8) conflict with distro subpackages (3.2.5). The `rlm_sql_postgresql.so` module is ABI-compatible within 3.2.x, so `--nodeps` is a valid workaround.
+- **sqlcounter counter_name**: The attribute specified in `counter_name` must NOT be defined in the dictionary — the sqlcounter module registers it internally as `integer64`.
 
 ---
 
@@ -232,7 +266,7 @@ Grafana dashboards for token usage, session metrics, cost tracking.
 
 | Repo | Changes | Status |
 |------|---------|--------|
-| **iron-claw** (new) | All phases above | Phases 1-4 code complete |
+| **iron-claw** (new) | All phases above | Phases 1-4 code complete, Phase 2 verified |
 | **missing-table** | 1 migration adding RADIUS tables + seed data | PR #218 merged |
 | **freeradius-lab** | None (Docker image used as base) | N/A |
 | **match-scraper** | None (patterns duplicated per convention) | N/A |
@@ -240,6 +274,8 @@ Grafana dashboards for token usage, session metrics, cost tracking.
 ## Key Risks
 
 1. **Supabase connection pooling (PgBouncer)** — FreeRADIUS may need `?sslmode=require` and proper connection handling. Test early.
-2. **VSA encoding in pyrad** — both pyrad and FreeRADIUS dictionaries must define the vendor block consistently. Test round-trip.
-3. **Token-to-octets mapping** — repurposing `acctinputoctets` for token counts is pragmatic but unconventional. Document clearly.
+2. ~~**VSA encoding in pyrad** — both pyrad and FreeRADIUS dictionaries must define the vendor block consistently. Test round-trip.~~ **RESOLVED**: VSA round-trip verified — all 10 MissTable VSAs returned correctly in Access-Accept and parsed by pyrad.
+3. ~~**Token-to-octets mapping** — repurposing `acctinputoctets` for token counts is pragmatic but unconventional. Document clearly.~~ **RESOLVED**: Accounting tests confirm `acctinputoctets` (tokens) and `acctoutputoctets` (matches) write correctly to `radacct`.
 4. **Network: Docker <-> K3s <-> Supabase** — FreeRADIUS on host Docker, scraper in K3s, Supabase on localhost. Use `host.k3d.internal` from K3s pods.
+5. **Docker Desktop macOS + UDP** — `network_mode: host` does not forward UDP. Use explicit port mapping and run RADIUS clients from containers on the same Docker network. (Discovered during Phase 2 verification.)
+6. **RPM version mismatch** — Base image has custom FreeRADIUS 3.2.8 RPM; AL2023 repo subpackages are 3.2.5. Workaround: `rpm --nodeps`. Long-term fix: publish postgresql subpackage from freeradius-lab CI.
