@@ -4,7 +4,9 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: iron-claw-radius
-    network_mode: host
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
     environment:
       - RADIUS_SQL_SERVER=${RADIUS_SQL_SERVER:-localhost}
       - RADIUS_SQL_PORT=${RADIUS_SQL_PORT:-54322}

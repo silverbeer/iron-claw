@@ -16,6 +16,8 @@ sqlcounter monthly_token_counter {
 	counter_name = MT-Monthly-Used
 	check_name = MT-Monthly-Budget
 
+	key = User-Name
+
 	# Reset monthly on the 1st
 	reset = monthly
 
