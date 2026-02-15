@@ -2,7 +2,7 @@
 #	Default virtual server for iron-claw FreeRADIUS
 #
 #	Uses SQL backend for all operations:
-#	- authorize: lookup user in radcheck/radreply via SQL
+#	- authorize: lookup user in radcheck/radreply via SQL, enforce monthly token budget
 #	- authenticate: PAP authentication
 #	- accounting: write to radacct via SQL
 #	- post-auth: log to radpostauth via SQL
@@ -25,6 +25,7 @@ server default {
 		filter_username
 		preprocess
 		sql
+		monthly_token_counter
 		pap
 	}
 

@@ -1,0 +1,28 @@
+#
+#	SQL counter module — monthly token budget enforcement
+#
+#	Queries SUM(acctinputoctets) from radacct for the current month.
+#	acctinputoctets is repurposed to store token counts (documented convention).
+#
+#	When the monthly total exceeds MT-Monthly-Budget (set in radreply),
+#	FreeRADIUS returns Access-Reject before the session starts.
+#
+
+sqlcounter monthly_token_counter {
+	sql_module_instance = sql
+
+	dialect = postgresql
+
+	counter_name = MT-Monthly-Used
+	check_name = MT-Monthly-Budget
+
+	# Reset monthly on the 1st
+	reset = monthly
+
+	# Sum token usage (stored in acctinputoctets) for the current month
+	query = "\
+		SELECT COALESCE(SUM(acctinputoctets), 0) \
+		FROM radacct \
+		WHERE username = '%{%{Stripped-User-Name}:-%{User-Name}}' \
+		AND acctstarttime >= DATE_TRUNC('month', NOW())"
+}

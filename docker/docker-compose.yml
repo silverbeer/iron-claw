@@ -14,6 +14,7 @@ services:
     volumes:
       - ../raddb/clients.conf:/etc/raddb/clients.conf:ro
       - ../raddb/mods-available/sql:/etc/raddb/mods-available/sql:ro
+      - ../raddb/mods-available/sqlcounter:/etc/raddb/mods-available/sqlcounter:ro
       - ../raddb/mods-config/sql/main/postgresql/queries.conf:/etc/raddb/mods-config/sql/main/postgresql/queries.conf:ro
       - ../raddb/sites-available/default:/etc/raddb/sites-available/default:ro
       - radius-logs:/var/log/radius
