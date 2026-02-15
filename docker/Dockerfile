@@ -15,10 +15,14 @@ RUN dnf install -y \
     dnf clean all
 
 # Copy custom dictionary into FreeRADIUS dictionary directory
-COPY ../raddb/dictionary.misstable /etc/raddb/dictionary.misstable
+COPY raddb/dictionary.misstable /etc/raddb/dictionary.misstable
 
 # Append vendor dictionary include to main dictionary
 RUN echo '$INCLUDE dictionary.misstable' >> /etc/raddb/dictionary
+
+# Enable sql and sqlcounter modules (symlink mods-available -> mods-enabled)
+RUN ln -sf /etc/raddb/mods-available/sql /etc/raddb/mods-enabled/sql && \
+    ln -sf /etc/raddb/mods-available/sqlcounter /etc/raddb/mods-enabled/sqlcounter
 
 EXPOSE 1812/udp 1813/udp
 
