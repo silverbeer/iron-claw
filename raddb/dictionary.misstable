@@ -29,6 +29,6 @@ ATTRIBUTE	MT-Pages-Visited	11	integer
 ATTRIBUTE	MT-LLM-Calls-Made	12	integer
 ATTRIBUTE	MT-Matches-Found	13	integer
 ATTRIBUTE	MT-Monthly-Budget	14	integer
-ATTRIBUTE	MT-Monthly-Used		15	integer
+# MT-Monthly-Used (15) is registered internally by the sqlcounter module
 
 END-VENDOR	MissTable

@@ -10,11 +10,11 @@ sql {
 
 	dialect = "postgresql"
 
-	server = "${ENV:RADIUS_SQL_SERVER}"
-	port = "${ENV:RADIUS_SQL_PORT}"
-	login = "${ENV:RADIUS_SQL_LOGIN}"
-	password = "${ENV:RADIUS_SQL_PASSWORD}"
-	radius_db = "${ENV:RADIUS_SQL_DATABASE}"
+	server = "$ENV{RADIUS_SQL_SERVER}"
+	port = "$ENV{RADIUS_SQL_PORT}"
+	login = "$ENV{RADIUS_SQL_LOGIN}"
+	password = "$ENV{RADIUS_SQL_PASSWORD}"
+	radius_db = "$ENV{RADIUS_SQL_DATABASE}"
 
 	acct_table1 = "radacct"
 	acct_table2 = "radacct"

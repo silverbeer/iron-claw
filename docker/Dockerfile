@@ -10,8 +10,13 @@
 FROM ghcr.io/silverbeer/freeradius-lab:latest
 
 # Install PostgreSQL SQL module
-RUN dnf install -y \
-        freeradius-postgresql-3.2* && \
+# The base image has FreeRADIUS 3.2.8 (custom RPM), but AL2023 repo only has
+# freeradius-postgresql-3.2.5 which has a hard dep on freeradius=3.2.5.
+# Use --nodeps since rlm_sql_postgresql.so is ABI-compatible within 3.2.x.
+RUN dnf install -y 'dnf-command(download)' postgresql-libs && \
+    dnf download freeradius-postgresql --downloaddir=/tmp && \
+    rpm -ivh --nodeps /tmp/freeradius-postgresql-*.rpm && \
+    rm -f /tmp/freeradius-postgresql-*.rpm && \
     dnf clean all
 
 # Copy custom dictionary into FreeRADIUS dictionary directory
