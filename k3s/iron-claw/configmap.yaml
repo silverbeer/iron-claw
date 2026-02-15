@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iron-claw-config
+  namespace: default
+data:
+  RADIUS_SERVER: "host.k3d.internal"
+  RADIUS_AUTH_PORT: "1812"
+  RADIUS_ACCT_PORT: "1813"
+  RADIUS_SECRET: "testing123"
+  RABBITMQ_URL: "amqp://guest:guest@rabbitmq.default.svc.cluster.local:5672/"
+  RABBITMQ_ROUTING_KEY: "match_processing"

@@ -1,0 +1,52 @@
+#
+#	Default virtual server for iron-claw FreeRADIUS
+#
+#	Uses SQL backend for all operations:
+#	- authorize: lookup user in radcheck/radreply via SQL
+#	- authenticate: PAP authentication
+#	- accounting: write to radacct via SQL
+#	- post-auth: log to radpostauth via SQL
+#
+
+server default {
+	listen {
+		type = auth
+		ipaddr = *
+		port = 1812
+	}
+
+	listen {
+		type = acct
+		ipaddr = *
+		port = 1813
+	}
+
+	authorize {
+		filter_username
+		preprocess
+		sql
+		pap
+	}
+
+	authenticate {
+		Auth-Type PAP {
+			pap
+		}
+	}
+
+	preacct {
+		preprocess
+		acct_unique
+	}
+
+	accounting {
+		sql
+	}
+
+	post-auth {
+		sql
+		Post-Auth-Type REJECT {
+			sql
+		}
+	}
+}

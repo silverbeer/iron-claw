@@ -1,0 +1,22 @@
+services:
+  freeradius:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: iron-claw-radius
+    network_mode: host
+    environment:
+      - RADIUS_SQL_SERVER=${RADIUS_SQL_SERVER:-localhost}
+      - RADIUS_SQL_PORT=${RADIUS_SQL_PORT:-54322}
+      - RADIUS_SQL_LOGIN=${RADIUS_SQL_LOGIN:-postgres}
+      - RADIUS_SQL_PASSWORD=${RADIUS_SQL_PASSWORD:-postgres}
+      - RADIUS_SQL_DATABASE=${RADIUS_SQL_DATABASE:-postgres}
+    volumes:
+      - ../raddb/clients.conf:/etc/raddb/clients.conf:ro
+      - ../raddb/mods-available/sql:/etc/raddb/mods-available/sql:ro
+      - ../raddb/mods-config/sql/main/postgresql/queries.conf:/etc/raddb/mods-config/sql/main/postgresql/queries.conf:ro
+      - ../raddb/sites-available/default:/etc/raddb/sites-available/default:ro
+      - radius-logs:/var/log/radius
+
+volumes:
+  radius-logs:

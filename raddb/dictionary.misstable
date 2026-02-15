@@ -1,0 +1,34 @@
+#
+#	Custom VSA dictionary for MissTable / iron-claw
+#
+#	Vendor: MissTable
+#	Vendor ID: 99901 (private-use range)
+#
+#	These attributes control LLM scraper sessions:
+#	- Token budgets and consumption tracking
+#	- Model authorization
+#	- Page navigation limits
+#	- Output queue routing
+#
+
+VENDOR		MissTable		99901
+
+BEGIN-VENDOR	MissTable
+
+ATTRIBUTE	MT-Token-Budget		1	integer
+ATTRIBUTE	MT-Tokens-Used		2	integer
+ATTRIBUTE	MT-Token-Cost-Cents	3	integer
+ATTRIBUTE	MT-Model-Allowed	4	string
+ATTRIBUTE	MT-Allowed-Domains	5	string
+ATTRIBUTE	MT-Browser-Enabled	6	integer
+ATTRIBUTE	MT-Shell-Enabled	7	integer
+ATTRIBUTE	MT-Max-Pages		8	integer
+ATTRIBUTE	MT-Max-LLM-Calls	9	integer
+ATTRIBUTE	MT-Output-Queue		10	string
+ATTRIBUTE	MT-Pages-Visited	11	integer
+ATTRIBUTE	MT-LLM-Calls-Made	12	integer
+ATTRIBUTE	MT-Matches-Found	13	integer
+ATTRIBUTE	MT-Monthly-Budget	14	integer
+ATTRIBUTE	MT-Monthly-Used		15	integer
+
+END-VENDOR	MissTable
