@@ -69,22 +69,22 @@ curl http://localhost:8100/v1/messages \
 
 ## Phase 2: RADIUS Session Lifecycle
 
-**Status: NOT STARTED**
+**Status: CODE COMPLETE** (pending live RADIUS test)
 **Depends on:** Phase 1
 
 ### Goal
 Proxy authenticates via RADIUS on startup, tracks tokens per request.
 
 ### New Files
-- [ ] `src/proxy/session.py` — `ProxySession` (tracks tokens_used, llm_calls_made per API call)
+- [x] `src/proxy/session.py` — `ProxySession` (tracks tokens_used, llm_calls_made per API call)
 
 ### Modified Files
-- [ ] `src/proxy/server.py` — Add RADIUS lifecycle:
+- [x] `src/proxy/server.py` — Add RADIUS lifecycle:
   - On startup: `RadiusSessionClient.authenticate()` → `SessionGrant`
   - On startup: `acct_start()`
   - Per request: count tokens from response `usage`, `acct_interim()`
   - On shutdown: `acct_stop()` with final totals
-- [ ] `src/cli/main.py` — Add RADIUS options to `proxy` command (username, password, server, secret)
+- [x] `src/cli/main.py` — Add RADIUS options to `proxy` command (username, password, server, secret)
 
 ### Context for Implementation
 - Reuse `src/radius/client.py` — `RadiusSessionClient` (authenticate, acct_start/interim/stop)

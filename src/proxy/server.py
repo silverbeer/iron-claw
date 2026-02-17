@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 
 import httpx
 import structlog
@@ -10,18 +11,44 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from proxy.config import ProxyConfig
+from proxy.session import ProxySession
+from radius.client import RadiusSessionClient
+from radius.models import RadiusConfig
 
 logger = structlog.get_logger()
 
 
-def create_app(config: ProxyConfig) -> FastAPI:
+def create_app(
+    config: ProxyConfig,
+    *,
+    radius_config: RadiusConfig | None = None,
+    username: str | None = None,
+    password: str | None = None,
+) -> FastAPI:
     """Build the FastAPI application with the given config."""
-    app = FastAPI(title="iron-claw proxy", version="0.1.0")
-    client = httpx.AsyncClient(base_url=config.anthropic_base_url, timeout=120.0)
+    session: ProxySession | None = None
+    radius_client: RadiusSessionClient | None = None
 
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        await client.aclose()
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        nonlocal session, radius_client
+
+        if radius_config and username and password:
+            radius_client = RadiusSessionClient(radius_config)
+            session = _radius_start(radius_client, username, password)
+            logger.info(
+                "proxy.radius.ready",
+                token_budget=session.grant.token_budget,
+                model_allowed=session.grant.model_allowed,
+            )
+
+        yield
+
+        if session and radius_client:
+            _radius_stop(radius_client, session)
+
+    app = FastAPI(title="iron-claw proxy", version="0.1.0", lifespan=lifespan)
+    client = httpx.AsyncClient(base_url=config.anthropic_base_url, timeout=120.0)
 
     @app.post("/v1/messages", response_model=None)
     async def messages(request: Request) -> JSONResponse | StreamingResponse:
@@ -38,14 +65,65 @@ def create_app(config: ProxyConfig) -> FastAPI:
         }
 
         if is_stream:
-            return await _handle_streaming(client, body, headers, model)
-        return await _handle_non_streaming(client, body, headers, model)
+            return await _handle_streaming(client, body, headers, model, session, radius_client)
+        return await _handle_non_streaming(client, body, headers, model, session, radius_client)
 
     @app.get("/health")
     async def health() -> dict:
-        return {"status": "ok"}
+        info: dict = {"status": "ok"}
+        if session:
+            info["radius"] = True
+            info["tokens_used"] = session.tokens_used
+            info["tokens_remaining"] = session.tokens_remaining
+            info["budget_pct"] = round(session.budget_percentage, 1)
+            info["llm_calls"] = session.llm_calls_made
+        return info
 
     return app
+
+
+def _radius_start(
+    radius_client: RadiusSessionClient,
+    username: str,
+    password: str,
+) -> ProxySession:
+    """Authenticate via RADIUS and start accounting session."""
+    grant = radius_client.authenticate(username, password)
+    session_id = radius_client.generate_session_id()
+    radius_client.acct_start(session_id, username)
+
+    return ProxySession(
+        session_id=session_id,
+        username=username,
+        grant=grant,
+    )
+
+
+def _radius_stop(radius_client: RadiusSessionClient, session: ProxySession) -> None:
+    """Send accounting stop with final totals."""
+    update = session.to_accounting_update()
+    radius_client.acct_stop(session.session_id, session.username, update)
+    logger.info(
+        "proxy.radius.stopped",
+        tokens_used=session.tokens_used,
+        llm_calls=session.llm_calls_made,
+        elapsed=session.elapsed_seconds,
+    )
+
+
+def _record_and_report(
+    session: ProxySession | None,
+    radius_client: RadiusSessionClient | None,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Record usage in session and send interim accounting if RADIUS is active."""
+    if not session:
+        return
+    session.record_usage(input_tokens, output_tokens)
+    if radius_client:
+        update = session.to_accounting_update()
+        radius_client.acct_interim(session.session_id, session.username, update)
 
 
 async def _handle_non_streaming(
@@ -53,19 +131,26 @@ async def _handle_non_streaming(
     body: dict,
     headers: dict,
     model: str,
+    session: ProxySession | None,
+    radius_client: RadiusSessionClient | None,
 ) -> JSONResponse:
     """Forward a non-streaming request and return the full response."""
     resp = await client.post("/v1/messages", json=body, headers=headers)
     data = resp.json()
 
     usage = data.get("usage", {})
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+
     logger.info(
         "proxy.response",
         model=model,
-        input_tokens=usage.get("input_tokens", 0),
-        output_tokens=usage.get("output_tokens", 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         status=resp.status_code,
     )
+
+    _record_and_report(session, radius_client, input_tokens, output_tokens)
 
     return JSONResponse(content=data, status_code=resp.status_code)
 
@@ -75,6 +160,8 @@ async def _handle_streaming(
     body: dict,
     headers: dict,
     model: str,
+    session: ProxySession | None,
+    radius_client: RadiusSessionClient | None,
 ) -> StreamingResponse:
     """Forward a streaming request and relay SSE events."""
     req = client.build_request("POST", "/v1/messages", json=body, headers=headers)
@@ -108,6 +195,8 @@ async def _handle_streaming(
             output_tokens=output_tokens,
             stream=True,
         )
+
+        _record_and_report(session, radius_client, input_tokens, output_tokens)
 
     return StreamingResponse(
         relay_events(),

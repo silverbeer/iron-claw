@@ -159,6 +159,14 @@ def scrape(
 def proxy(
     port: Annotated[int, typer.Option(help="Port to listen on")] = 8100,
     host: Annotated[str, typer.Option(help="Host to bind to")] = "127.0.0.1",
+    username: Annotated[
+        str | None, typer.Option(help="RADIUS username (enables RADIUS auth)")
+    ] = None,
+    password: Annotated[
+        str | None, typer.Option(help="RADIUS password (default: $RADIUS_PASSWORD)")
+    ] = None,
+    server: Annotated[str, typer.Option(help="RADIUS server")] = "localhost",
+    secret: Annotated[str, typer.Option(help="RADIUS shared secret")] = "testing123",
 ) -> None:
     """Start the LLM proxy server (forwards to Anthropic API)."""
     import uvicorn
@@ -175,7 +183,17 @@ def proxy(
             raise typer.Exit(code=1)
         config = ProxyConfig(port=port, host=host, anthropic_api_key=api_key)
 
-    _app = create_app(config)
+    radius_config = None
+    if username:
+        password = _resolve_password(password)
+        radius_config = RadiusConfig(server=server, secret=secret)
+
+    _app = create_app(
+        config,
+        radius_config=radius_config,
+        username=username,
+        password=password,
+    )
     typer.echo(f"Starting iron-claw proxy on {host}:{port}")
     uvicorn.run(_app, host=host, port=port, log_level="warning")
 
