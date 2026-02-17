@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from datetime import date, timedelta
+from pathlib import Path
 from typing import Annotated
 
 import typer
+from dotenv import load_dotenv
 
 from radius.client import AuthenticationError, RadiusSessionClient
 from radius.models import RadiusConfig
 from utils.logger import configure_logging
+
+
+def _resolve_password(password: str | None) -> str:
+    """Resolve password: CLI flag → RADIUS_PASSWORD env var → interactive prompt."""
+    if password:
+        return password
+    env_val = os.environ.get("RADIUS_PASSWORD")
+    if env_val:
+        return env_val
+    return typer.prompt("Password", hide_input=True)
 
 app = typer.Typer(
     name="iron-claw",
@@ -17,14 +31,25 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 @app.callback()
 def main(
     json_logs: Annotated[
         bool, typer.Option("--json-logs", help="Output structured JSON logs")
     ] = False,
+    env: Annotated[
+        str, typer.Option("--env", help="Environment name (loads .env.<name>)")
+    ] = "local",
 ) -> None:
     """Configure global options."""
+    env_file = PROJECT_ROOT / f".env.{env}"
+    if env_file.exists():
+        load_dotenv(env_file, override=True)
+        typer.echo(f"Loaded {env_file.name}")
+    else:
+        typer.echo(f"Warning: {env_file} not found", err=True)
     configure_logging(json_output=json_logs)
 
 
@@ -32,12 +57,13 @@ def main(
 def auth_test(
     username: Annotated[str, typer.Option(help="RADIUS username")] = "iron-claw-scraper",
     password: Annotated[
-        str, typer.Option(help="RADIUS password", prompt=True, hide_input=True)
-    ] = "",
+        str | None, typer.Option(help="RADIUS password (default: $RADIUS_PASSWORD)")
+    ] = None,
     server: Annotated[str, typer.Option(help="RADIUS server")] = "localhost",
     secret: Annotated[str, typer.Option(help="RADIUS shared secret")] = "testing123",
 ) -> None:
     """Test RADIUS authentication and display granted attributes."""
+    password = _resolve_password(password)
     config = RadiusConfig(server=server, secret=secret)
     client = RadiusSessionClient(config)
 
@@ -63,20 +89,53 @@ def auth_test(
 def scrape(
     username: Annotated[str, typer.Option(help="RADIUS username")] = "iron-claw-scraper",
     password: Annotated[
-        str, typer.Option(help="RADIUS password", prompt=True, hide_input=True)
-    ] = "",
-    dry_run: Annotated[bool, typer.Option("--dry-run", help="Use mock LLM provider")] = False,
+        str | None, typer.Option(help="RADIUS password (default: $RADIUS_PASSWORD)")
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Use test model (no API calls)")
+    ] = False,
     server: Annotated[str, typer.Option(help="RADIUS server")] = "localhost",
     secret: Annotated[str, typer.Option(help="RADIUS shared secret")] = "testing123",
     target_url: Annotated[
         str | None, typer.Option(help="URL to scrape (default: MLS Next schedule)")
     ] = None,
+    age_group: Annotated[str, typer.Option(help="MLS Next age group (U13-U19)")] = "U14",
+    division: Annotated[str, typer.Option(help="MLS Next division")] = "Northeast",
+    look_back_days: Annotated[
+        int, typer.Option(help="Number of days back from today for date range")
+    ] = 7,
+    start_date: Annotated[
+        str | None, typer.Option(help="Start date YYYY-MM-DD (overrides --look-back-days)")
+    ] = None,
+    end_date: Annotated[
+        str | None, typer.Option(help="End date YYYY-MM-DD (default: today)")
+    ] = None,
+    headless: Annotated[
+        bool, typer.Option(help="Run browser in headless mode")
+    ] = True,
 ) -> None:
-    """Run the LLM-powered match scraper with RADIUS session control."""
+    """Run the match scraper with RADIUS session control."""
     from scraper.engine import ScrapingEngine
+    from scraper.playwright_fetcher import ScrapeConfig
+
+    password = _resolve_password(password)
+
+    if start_date:
+        sd = date.fromisoformat(start_date)
+    else:
+        sd = date.today() - timedelta(days=look_back_days)
+    ed = date.fromisoformat(end_date) if end_date else date.today()
+
+    scrape_config = ScrapeConfig(
+        age_group=age_group,
+        division=division,
+        start_date=sd,
+        end_date=ed,
+        headless=headless,
+    )
 
     config = RadiusConfig(server=server, secret=secret)
-    engine = ScrapingEngine(config=config, dry_run=dry_run)
+    engine = ScrapingEngine(config=config, dry_run=dry_run, scrape_config=scrape_config)
 
     try:
         result = engine.run(username=username, password=password, target_url=target_url)
@@ -85,10 +144,40 @@ def scrape(
         raise typer.Exit(code=1) from None
 
     typer.echo(f"Session complete: {result.matches_found} matches found")
-    typer.echo(f"  Tokens used:  {result.tokens_used:,}")
     typer.echo(f"  Pages visited: {result.pages_visited}")
-    typer.echo(f"  LLM calls:    {result.llm_calls_made}")
+    typer.echo(f"  Queued:        {len(result.queued)}")
+
+    typer.echo("")
+    for m in result.matches:
+        score = f"{m.home_score}-{m.away_score}" if m.home_score is not None else "TBD"
+        typer.echo(f"  [{m.date}] {m.home_team} vs {m.away_team}  {score}  ({m.status})")
+
     sys.exit(0 if result.matches_found > 0 else 1)
+
+
+@app.command()
+def proxy(
+    port: Annotated[int, typer.Option(help="Port to listen on")] = 8100,
+    host: Annotated[str, typer.Option(help="Host to bind to")] = "127.0.0.1",
+) -> None:
+    """Start the LLM proxy server (forwards to Anthropic API)."""
+    import uvicorn
+
+    from proxy.config import ProxyConfig
+    from proxy.server import create_app
+
+    config = ProxyConfig(port=port, host=host)
+
+    if not config.anthropic_api_key:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            typer.echo("Error: ANTHROPIC_API_KEY env var is required", err=True)
+            raise typer.Exit(code=1)
+        config = ProxyConfig(port=port, host=host, anthropic_api_key=api_key)
+
+    _app = create_app(config)
+    typer.echo(f"Starting iron-claw proxy on {host}:{port}")
+    uvicorn.run(_app, host=host, port=port, log_level="warning")
 
 
 @app.command()
