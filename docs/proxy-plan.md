@@ -161,15 +161,15 @@ Budget enforcement with model downgrade at 70%, reject at 100%.
 
 ## Phase 4: Wire OpenClaw Through the Proxy
 
-**Status: NOT STARTED**
+**Status: CONFIGURED** (env var set, pending live WhatsApp test)
 **Depends on:** Phase 3
 
 ### Goal
 OpenClaw's LLM calls route through iron-claw proxy.
 
 ### Modified Files
-- [ ] `~/.openclaw/.env` — Add: `ANTHROPIC_BASE_URL=http://localhost:8100`
-- [ ] If OpenClaw doesn't honor `ANTHROPIC_BASE_URL`, investigate its provider config
+- [x] `~/.openclaw/.env` — Add: `ANTHROPIC_BASE_URL=http://localhost:8100`
+- [x] If OpenClaw doesn't honor `ANTHROPIC_BASE_URL`, investigate its provider config
 
 ### Context for Implementation
 - OpenClaw config lives at `~/.openclaw/`
