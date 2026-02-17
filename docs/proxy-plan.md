@@ -126,20 +126,20 @@ uv run iron-claw proxy --port 8100 --username iron-claw-proxy --password proxy-s
 
 ## Phase 3: Throttle Ladder Enforcement
 
-**Status: NOT STARTED**
+**Status: VERIFIED** (downgrade at 81%, warning at 94%, 429 at 107%)
 **Depends on:** Phase 2
 
 ### Goal
 Budget enforcement with model downgrade at 70%, reject at 100%.
 
 ### Modified Files
-- [ ] `src/proxy/server.py` — Before forwarding each request:
+- [x] `src/proxy/server.py` — Before forwarding each request:
   1. `PolicyEngine.evaluate(session)` checks budget %
   2. `KILL_SESSION` → return HTTP 429 with budget exceeded message
   3. `DOWNGRADE_MODEL` → rewrite request body `model` field to cheaper model
   4. `REDUCE_PAGES` → adapted to reduce remaining LLM calls
   5. `NONE` → forward as-is
-- [ ] `src/proxy/server.py` — Add `GET /status` endpoint showing session state, budget %, tokens remaining
+- [x] `src/proxy/server.py` — Add `GET /status` endpoint showing session state, budget %, tokens remaining
 
 ### Context for Implementation
 - Reuse `src/policy/engine.py` — `PolicyEngine.evaluate()` takes a session with `budget_percentage` property

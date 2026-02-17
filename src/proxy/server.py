@@ -10,10 +10,14 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from policy.engine import PolicyEngine
+from policy.rules import ThrottleAction
 from proxy.config import ProxyConfig
 from proxy.session import ProxySession
 from radius.client import RadiusSessionClient
 from radius.models import RadiusConfig
+
+DOWNGRADE_MODEL = "claude-haiku-4-5-20251001"
 
 logger = structlog.get_logger()
 
@@ -28,6 +32,7 @@ def create_app(
     """Build the FastAPI application with the given config."""
     session: ProxySession | None = None
     radius_client: RadiusSessionClient | None = None
+    policy = PolicyEngine()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -56,6 +61,37 @@ def create_app(
         model = body.get("model", "unknown")
         is_stream = body.get("stream", False)
 
+        # Policy enforcement (only when RADIUS session is active)
+        if session:
+            action = policy.evaluate(session)
+            if action == ThrottleAction.KILL_SESSION:
+                logger.warning("proxy.rejected", model=model, budget_pct=session.budget_percentage)
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "type": "error",
+                        "error": {
+                            "type": "rate_limit_error",
+                            "message": (
+                                f"Token budget exceeded ({session.tokens_used}"
+                                f"/{session.grant.token_budget}). "
+                                "Session killed by policy engine."
+                            ),
+                        },
+                    },
+                )
+            if action == ThrottleAction.DOWNGRADE_MODEL:
+                original = body.get("model")
+                body["model"] = DOWNGRADE_MODEL
+                model = DOWNGRADE_MODEL
+                logger.info("proxy.downgrade", original=original, downgraded_to=DOWNGRADE_MODEL)
+            if action == ThrottleAction.REDUCE_PAGES:
+                logger.info(
+                    "proxy.warning",
+                    detail="Budget 90-100%, approaching limit",
+                    budget_pct=round(session.budget_percentage, 1),
+                )
+
         logger.info("proxy.request", model=model, stream=is_stream)
 
         headers = {
@@ -78,6 +114,24 @@ def create_app(
             info["budget_pct"] = round(session.budget_percentage, 1)
             info["llm_calls"] = session.llm_calls_made
         return info
+
+    @app.get("/status")
+    async def status() -> dict:
+        if not session:
+            return {"status": "no_radius_session", "mode": "bare"}
+        return {
+            "status": "active",
+            "session_id": session.session_id,
+            "username": session.username,
+            "model_allowed": session.grant.model_allowed,
+            "token_budget": session.grant.token_budget,
+            "tokens_used": session.tokens_used,
+            "tokens_remaining": session.tokens_remaining,
+            "budget_pct": round(session.budget_percentage, 1),
+            "llm_calls_made": session.llm_calls_made,
+            "llm_calls_remaining": session.llm_calls_remaining,
+            "elapsed_seconds": session.elapsed_seconds,
+        }
 
     return app
 
