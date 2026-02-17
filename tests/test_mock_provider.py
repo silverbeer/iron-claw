@@ -1,34 +1,48 @@
-"""Unit tests for the mock LLM provider."""
+"""Unit tests for the PydanticAI match agent with TestModel."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from pydantic_ai.models.test import TestModel
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from llm.agent import match_agent
+from llm.deps import AgentDeps
+from llm.result import AgentResult
+from models.session import ScrapingSession
+from mq.client import MatchQueueClient
+from radius.models import SessionGrant
 
-from llm.mock_provider import MockProvider
+
+def _make_deps() -> AgentDeps:
+    """Create AgentDeps with a disconnected queue client."""
+    grant = SessionGrant()
+    session = ScrapingSession(session_id="test-001", username="test", grant=grant)
+    queue = MatchQueueClient()
+    return AgentDeps(queue_client=queue, session=session, grant=grant)
 
 
-class TestMockProvider:
-    def test_returns_matches(self):
-        provider = MockProvider()
-        matches, _usage = provider.extract_matches("<html>test</html>")
-        assert len(matches) == 2
-        assert matches[0]["home_team"] == "FC Dallas U17"
+class TestMatchAgent:
+    def test_returns_agent_result(self):
+        result = match_agent.run_sync(
+            "<html>test</html>",
+            deps=_make_deps(),
+            model=TestModel(call_tools=[]),
+        )
+        assert isinstance(result.output, AgentResult)
+        assert isinstance(result.output.matches, list)
 
-    def test_returns_token_usage(self):
-        provider = MockProvider(tokens_per_call=1000)
-        _, usage = provider.extract_matches("<html>test</html>")
-        assert usage.total_tokens == 1000
-        assert usage.input_tokens == 750
-        assert usage.output_tokens == 250
+    def test_reports_usage(self):
+        result = match_agent.run_sync(
+            "<html>test</html>",
+            deps=_make_deps(),
+            model=TestModel(call_tools=[]),
+        )
+        usage = result.usage()
+        assert usage.requests >= 1
 
-    def test_model_name(self):
-        provider = MockProvider(model="test-model")
-        assert provider.model_name == "test-model"
-
-    def test_configurable_matches_per_call(self):
-        provider = MockProvider(matches_per_call=1)
-        matches, _ = provider.extract_matches("<html></html>")
-        assert len(matches) == 1
+    def test_actions_default_empty(self):
+        result = match_agent.run_sync(
+            "<html>test</html>",
+            deps=_make_deps(),
+            model=TestModel(call_tools=[]),
+        )
+        assert isinstance(result.output.actions, list)
