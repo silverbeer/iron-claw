@@ -1,18 +1,22 @@
-"""Scraping engine — orchestrates the RADIUS-controlled LLM scraping session."""
+"""Scraping engine — orchestrates the RADIUS-controlled scraping session.
+
+Uses deterministic DOM extraction (CSS selectors) instead of LLM-based
+extraction.  The PydanticAI agent layer (src/llm/) is kept for future
+agentic features but is not called during normal match extraction.
+"""
 
 from __future__ import annotations
 
 import structlog
 
-from llm.anthropic_provider import AnthropicProvider
-from llm.mock_provider import MockProvider
-from llm.protocol import LLMProvider
 from models.match_data import MatchData
 from models.session import ScrapingSession
+from mq.client import MatchQueueClient, QueueConfig
 from policy.engine import PolicyEngine, ThrottleAction
 from radius.client import RadiusSessionClient
 from radius.models import RadiusConfig
-from scraper.page_fetcher import PageFetcher
+from scraper.dom_extractor import DOMExtractor
+from scraper.playwright_fetcher import PlaywrightFetcher, ScrapeConfig
 
 logger = structlog.get_logger()
 
@@ -23,20 +27,21 @@ class ScrapeResult:
     """Result of a scraping session."""
 
     def __init__(self, session: ScrapingSession) -> None:
+        self.session_id = session.session_id
         self.matches_found = session.matches_found
         self.tokens_used = session.tokens_used
         self.pages_visited = session.pages_visited
-        self.llm_calls_made = session.llm_calls_made
         self.matches = list(session.matches)
+        self.queued: list[MatchData] = []
 
 
 class ScrapingEngine:
     """Orchestrates the full RADIUS-controlled scraping lifecycle.
 
     1. Authenticate with RADIUS -> get session grant
-    2. Enforce grant constraints (model, pages, domains)
+    2. Enforce grant constraints (pages, domains)
     3. Send Acct-Start
-    4. For each page: fetch HTML, extract matches via LLM, track tokens
+    4. For each page: extract matches via DOMExtractor, route to queue
     5. After each page: evaluate throttle policy
     6. Send Acct-Stop (always, even on error)
     """
@@ -45,14 +50,19 @@ class ScrapingEngine:
         self,
         config: RadiusConfig | None = None,
         dry_run: bool = False,
-        llm_provider: LLMProvider | None = None,
+        scrape_config: ScrapeConfig | None = None,
+        queue_config: QueueConfig | None = None,
+        _test_model: object | None = None,
     ) -> None:
         self._config = config or RadiusConfig()
         self._radius = RadiusSessionClient(self._config)
-        self._fetcher = PageFetcher()
+        self._fetcher = PlaywrightFetcher(scrape_config)
         self._policy = PolicyEngine()
         self._dry_run = dry_run
-        self._llm_provider = llm_provider
+        self._queue = MatchQueueClient(queue_config)
+        self._extractor = DOMExtractor()
+        # _test_model kept for integration test compatibility (unused by extractor)
+        self._test_model = _test_model
 
     def run(
         self,
@@ -64,16 +74,7 @@ class ScrapingEngine:
         # 1. Authenticate
         grant = self._radius.authenticate(username, password)
 
-        # 2. Choose LLM provider
-        provider: LLMProvider
-        if self._llm_provider:
-            provider = self._llm_provider
-        elif self._dry_run:
-            provider = MockProvider(model=grant.model_allowed)
-        else:
-            provider = AnthropicProvider(model=grant.model_allowed)
-
-        # 3. Create session
+        # 2. Create session
         session_id = self._radius.generate_session_id()
         session = ScrapingSession(
             session_id=session_id,
@@ -81,19 +82,20 @@ class ScrapingEngine:
             grant=grant,
         )
 
-        # 4. Acct-Start
+        # 3. Acct-Start
         self._radius.acct_start(session_id, username)
         terminate_cause = "User-Request"
+        result = ScrapeResult(session)
 
         try:
-            # 5. Scrape pages
+            # 4. Scrape pages (fetcher handles pagination internally)
             url = target_url or DEFAULT_TARGET_URL
-            self._scrape_pages(session, provider, [url])
+            self._scrape_pages(session, url, result)
         except Exception:
             terminate_cause = "NAS-Error"
             logger.exception("scraper.error", session_id=session_id)
         finally:
-            # 6. Acct-Stop (always)
+            # 5. Acct-Stop (always)
             self._radius.acct_stop(
                 session_id,
                 username,
@@ -101,22 +103,22 @@ class ScrapingEngine:
                 terminate_cause,
             )
 
-        return ScrapeResult(session)
+        # Refresh result counts from final session state
+        result.matches_found = session.matches_found
+        result.pages_visited = session.pages_visited
+        result.matches = list(session.matches)
+        return result
 
     def _scrape_pages(
         self,
         session: ScrapingSession,
-        provider: LLMProvider,
-        urls: list[str],
+        url: str,
+        result: ScrapeResult,
     ) -> None:
-        """Scrape a list of URLs with throttle policy enforcement."""
-        for url in urls:
+        """Consume pages from the fetcher generator with throttle enforcement."""
+        for iframe in self._fetcher.fetch(url):
             if session.pages_remaining <= 0:
                 logger.info("scraper.max_pages_reached", session_id=session.session_id)
-                break
-
-            if session.llm_calls_remaining <= 0:
-                logger.info("scraper.max_llm_calls_reached", session_id=session.session_id)
                 break
 
             # Check throttle policy before each page
@@ -131,32 +133,25 @@ class ScrapingEngine:
                     new_max=session.grant.max_pages,
                 )
 
-            # Fetch page
-            try:
-                html = self._fetcher.fetch(url)
-            except Exception:
-                logger.exception("scraper.fetch_error", url=url)
-                continue
-
             session.add_page()
 
-            # Extract matches via LLM
+            # Deterministic extraction — zero LLM tokens
             try:
-                raw_matches, usage = provider.extract_matches(html)
+                matches = self._extractor.extract(iframe)
             except Exception:
-                logger.exception("scraper.llm_error", url=url)
+                logger.exception("scraper.extraction_error")
                 continue
 
-            session.add_llm_call()
-            session.add_tokens(usage.total_tokens)
-
-            # Parse and store matches
-            for raw in raw_matches:
-                try:
-                    match = MatchData.model_validate(raw)
-                    session.add_match(match)
-                except Exception:
-                    logger.warning("scraper.match_parse_error", raw=raw)
+            # Record matches and route to queue
+            for match in matches:
+                session.add_match(match)
+                if match.status in ("scheduled", "final"):
+                    try:
+                        self._queue.submit([match])
+                        result.queued.append(match)
+                    except Exception:
+                        summary = f"{match.home_team} vs {match.away_team}"
+                        logger.exception("scraper.queue_error", match=summary)
 
             # Send interim accounting update
             self._radius.acct_interim(
@@ -167,8 +162,6 @@ class ScrapingEngine:
 
             logger.info(
                 "scraper.page_complete",
-                url=url,
-                matches=len(raw_matches),
-                tokens_total=session.tokens_used,
-                budget_pct=f"{session.budget_percentage:.1f}%",
+                page=session.pages_visited,
+                matches=len(matches),
             )

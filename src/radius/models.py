@@ -45,5 +45,6 @@ class AccountingUpdate(BaseModel):
     tokens_used: int = 0
     pages_visited: int = 0
     llm_calls_made: int = 0
+    tool_calls_made: int = 0
     matches_found: int = 0
     session_time: int = 0
