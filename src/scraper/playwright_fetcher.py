@@ -38,14 +38,25 @@ class ScrapeConfig(BaseModel):
     timeout: int = 30_000
 
     AGE_GROUP_VALUES: ClassVar[dict[str, str]] = {
-        "U13": "21", "U14": "22", "U15": "33",
-        "U16": "14", "U17": "15", "U19": "26",
+        "U13": "21",
+        "U14": "22",
+        "U15": "33",
+        "U16": "14",
+        "U17": "15",
+        "U19": "26",
     }
     DIVISION_VALUES: ClassVar[dict[str, str]] = {
-        "Central": "34", "Northeast": "41", "East": "35",
-        "Mid-Atlantic": "68", "Florida": "46", "Southwest": "36",
-        "Southeast": "37", "Northwest": "38", "Great Lakes": "39",
-        "Texas": "40", "California": "42",
+        "Central": "34",
+        "Northeast": "41",
+        "East": "35",
+        "Mid-Atlantic": "68",
+        "Florida": "46",
+        "Southwest": "36",
+        "Southeast": "37",
+        "Northwest": "38",
+        "Great Lakes": "39",
+        "Texas": "40",
+        "California": "42",
     }
 
 

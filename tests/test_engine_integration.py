@@ -32,6 +32,7 @@ def _mock_frame_with_matches() -> MagicMock:
     Simulates the DOM structure by mocking query_selector / query_selector_all
     so that DOMExtractor finds one row with valid team, date, and score data.
     """
+
     def _el(text: str) -> MagicMock:
         el = MagicMock()
         el.text_content.return_value = text
@@ -45,6 +46,7 @@ def _mock_frame_with_matches() -> MagicMock:
     score_el = _el("VS")
 
     teams_col = MagicMock()
+
     def teams_qs(sel):
         if "first-team" in sel:
             return home_team_el
@@ -53,6 +55,7 @@ def _mock_frame_with_matches() -> MagicMock:
         if "score" in sel:
             return score_el
         return None
+
     teams_col.query_selector = MagicMock(side_effect=teams_qs)
 
     # Build details column
@@ -63,6 +66,7 @@ def _mock_frame_with_matches() -> MagicMock:
 
     # Build match row
     row = MagicMock()
+
     def row_qs(sel):
         if "col-sm-2:nth-child(2)" in sel:
             return details_col
@@ -75,14 +79,17 @@ def _mock_frame_with_matches() -> MagicMock:
         if "second-team" in sel:
             return away_team_el
         return None
+
     row.query_selector = MagicMock(side_effect=row_qs)
 
     # Build frame
     frame = MagicMock()
+
     def frame_qsa(sel):
         if "table-content-row" in sel:
             return [row]
         return []
+
     frame.query_selector_all = MagicMock(side_effect=frame_qsa)
     frame.query_selector = MagicMock(return_value=None)
 
@@ -153,7 +160,6 @@ def query_radacct(conn, session_id: str, timeout: float = 5.0) -> dict | None:
 
 @pytest.mark.integration
 class TestEngineIntegration:
-
     def test_full_lifecycle_single_page(self, radius_config, db_conn):
         """Single page scrape: auth -> acct-start -> extract -> acct-stop.
 

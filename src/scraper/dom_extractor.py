@@ -32,8 +32,8 @@ _ROW_SELECTORS = [
 ]
 
 # Bootstrap grid column selectors for each data field
-_COL_DETAILS = ".col-sm-2:nth-child(2)"        # date / time / venue
-_COL_COMPETITION = ".col-sm-2:nth-child(4)"     # competition + division
+_COL_DETAILS = ".col-sm-2:nth-child(2)"  # date / time / venue
+_COL_COMPETITION = ".col-sm-2:nth-child(4)"  # competition + division
 _COL_TEAMS = ".col-sm-6.pad-0 .container-teams-info"
 
 # Team / score selectors within the teams column
@@ -48,9 +48,9 @@ _SCORE = ".container-score .score-match-table"
 _SCORE_RE = re.compile(r"(\d+)\s*[-\u2013\u2014:]\s*(\d+)")
 _TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*(AM|PM)", re.IGNORECASE)
 _DATE_PATTERNS = [
-    re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})"),        # MM/DD/YYYY
-    re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2})$"),       # MM/DD/YY
-    re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})"),        # YYYY-MM-DD
+    re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})"),  # MM/DD/YYYY
+    re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2})$"),  # MM/DD/YY
+    re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})"),  # YYYY-MM-DD
 ]
 
 _TBD_VALUES = frozenset({"TBD", "VS", "V", "@", "NOT STARTED", "PENDING"})

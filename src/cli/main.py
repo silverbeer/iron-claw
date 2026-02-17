@@ -25,6 +25,7 @@ def _resolve_password(password: str | None) -> str:
         return env_val
     return typer.prompt("Password", hide_input=True)
 
+
 app = typer.Typer(
     name="iron-claw",
     help="RADIUS-controlled LLM match scraper for MLS Next matches.",
@@ -110,9 +111,7 @@ def scrape(
     end_date: Annotated[
         str | None, typer.Option(help="End date YYYY-MM-DD (default: today)")
     ] = None,
-    headless: Annotated[
-        bool, typer.Option(help="Run browser in headless mode")
-    ] = True,
+    headless: Annotated[bool, typer.Option(help="Run browser in headless mode")] = True,
 ) -> None:
     """Run the match scraper with RADIUS session control."""
     from scraper.engine import ScrapingEngine
