@@ -1,0 +1,15 @@
+.venv/
+.git/
+.github/
+tests/
+k3s/
+terraform/
+dashboards/
+*.egg-info/
+__pycache__/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.env
+.env.*
+.DS_Store

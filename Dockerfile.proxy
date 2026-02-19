@@ -1,0 +1,31 @@
+# Dockerfile.proxy — Slim image for the iron-claw LLM proxy server.
+#
+# Skips Playwright browser binaries and system deps (~550 MB savings)
+# since the proxy only forwards Anthropic API calls.
+#
+# Build:
+#   docker build -f Dockerfile.proxy -t iron-claw-proxy .
+# Run:
+#   docker run -e PROXY_ANTHROPIC_API_KEY=sk-... -p 8100:8100 iron-claw-proxy
+
+FROM python:3.12-slim AS base
+
+# Install uv for fast dependency resolution
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY pyproject.toml ./
+RUN uv sync --no-dev --no-install-project
+
+# Copy application source
+COPY src/ src/
+
+# Install the project itself
+RUN uv sync --no-dev
+
+EXPOSE 8100
+
+ENTRYPOINT ["uv", "run", "iron-claw"]
+CMD ["--json-logs", "proxy"]

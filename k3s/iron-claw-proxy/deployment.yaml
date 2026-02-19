@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iron-claw-proxy
+  namespace: iron-claw
+  labels:
+    app: iron-claw-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iron-claw-proxy
+  template:
+    metadata:
+      labels:
+        app: iron-claw-proxy
+    spec:
+      containers:
+        - name: iron-claw-proxy
+          image: ghcr.io/silverbeer/iron-claw-proxy:latest
+          ports:
+            - containerPort: 8100
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: iron-claw-proxy-config
+            - secretRef:
+                name: iron-claw-proxy-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"

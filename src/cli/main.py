@@ -156,16 +156,16 @@ def scrape(
 
 @app.command()
 def proxy(
-    port: Annotated[int, typer.Option(help="Port to listen on")] = 8100,
-    host: Annotated[str, typer.Option(help="Host to bind to")] = "127.0.0.1",
+    port: Annotated[int | None, typer.Option(help="Port to listen on")] = None,
+    host: Annotated[str | None, typer.Option(help="Host to bind to")] = None,
     username: Annotated[
         str | None, typer.Option(help="RADIUS username (enables RADIUS auth)")
     ] = None,
     password: Annotated[
         str | None, typer.Option(help="RADIUS password (default: $RADIUS_PASSWORD)")
     ] = None,
-    server: Annotated[str, typer.Option(help="RADIUS server")] = "localhost",
-    secret: Annotated[str, typer.Option(help="RADIUS shared secret")] = "testing123",
+    server: Annotated[str | None, typer.Option(help="RADIUS server")] = None,
+    secret: Annotated[str | None, typer.Option(help="RADIUS shared secret")] = None,
 ) -> None:
     """Start the LLM proxy server (forwards to Anthropic API)."""
     import uvicorn
@@ -173,19 +173,36 @@ def proxy(
     from proxy.config import ProxyConfig
     from proxy.server import create_app
 
-    config = ProxyConfig(port=port, host=host)
+    # Build ProxyConfig — only pass CLI args that were explicitly provided,
+    # so pydantic-settings can resolve env vars (PROXY_HOST, PROXY_PORT, etc.)
+    proxy_overrides: dict = {}
+    if port is not None:
+        proxy_overrides["port"] = port
+    if host is not None:
+        proxy_overrides["host"] = host
+
+    config = ProxyConfig(**proxy_overrides)
 
     if not config.anthropic_api_key:
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
-            typer.echo("Error: ANTHROPIC_API_KEY env var is required", err=True)
+            typer.echo("Error: ANTHROPIC_API_KEY or PROXY_ANTHROPIC_API_KEY required", err=True)
             raise typer.Exit(code=1)
-        config = ProxyConfig(port=port, host=host, anthropic_api_key=api_key)
+        config = ProxyConfig(anthropic_api_key=api_key, **proxy_overrides)
+
+    # RADIUS auth: CLI --username > IRON_CLAW_USERNAME env var
+    if username is None:
+        username = os.environ.get("IRON_CLAW_USERNAME")
 
     radius_config = None
     if username:
         password = _resolve_password(password)
-        radius_config = RadiusConfig(server=server, secret=secret)
+        radius_overrides: dict = {}
+        if server is not None:
+            radius_overrides["server"] = server
+        if secret is not None:
+            radius_overrides["secret"] = secret
+        radius_config = RadiusConfig(**radius_overrides)
 
     _app = create_app(
         config,
@@ -193,8 +210,8 @@ def proxy(
         username=username,
         password=password,
     )
-    typer.echo(f"Starting iron-claw proxy on {host}:{port}")
-    uvicorn.run(_app, host=host, port=port, log_level="warning")
+    typer.echo(f"Starting iron-claw proxy on {config.host}:{config.port}")
+    uvicorn.run(_app, host=config.host, port=config.port, log_level="warning")
 
 
 @app.command()
