@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iron-claw-proxy-config
+  namespace: iron-claw
+data:
+  PROXY_HOST: "0.0.0.0"
+  PROXY_PORT: "8100"
+  RADIUS_SERVER: "host.k3d.internal"
+  RADIUS_AUTH_PORT: "1812"
+  RADIUS_ACCT_PORT: "1813"
+  RADIUS_SECRET: "testing123"

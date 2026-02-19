@@ -32,3 +32,4 @@ terraform/.terraform.lock.hcl
 terraform/grafana/.terraform/
 terraform/grafana/*.tfstate*
 terraform/grafana/.terraform.lock.hcl
+k3s/iron-claw-proxy/secret.yaml
