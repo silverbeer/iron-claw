@@ -2,8 +2,6 @@
 .git/
 .github/
 tests/
-docker/
-raddb/
 k3s/
 terraform/
 dashboards/
