@@ -8,7 +8,7 @@ services:
       - "1812:1812/udp"
       - "1813:1813/udp"
     environment:
-      - RADIUS_SQL_SERVER=${RADIUS_SQL_SERVER:-localhost}
+      - RADIUS_SQL_SERVER=${RADIUS_SQL_SERVER:-host.docker.internal}
       - RADIUS_SQL_PORT=${RADIUS_SQL_PORT:-54322}
       - RADIUS_SQL_LOGIN=${RADIUS_SQL_LOGIN:-postgres}
       - RADIUS_SQL_PASSWORD=${RADIUS_SQL_PASSWORD:-postgres}
