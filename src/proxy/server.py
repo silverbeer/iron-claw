@@ -62,35 +62,48 @@ def create_app(
         is_stream = body.get("stream", False)
 
         # Policy enforcement (only when RADIUS session is active)
-        if session:
+        if session and config.policy_mode != "off":
             action = policy.evaluate(session)
-            if action == ThrottleAction.KILL_SESSION:
-                logger.warning("proxy.rejected", model=model, budget_pct=session.budget_percentage)
-                return JSONResponse(
-                    status_code=429,
-                    content={
-                        "type": "error",
-                        "error": {
-                            "type": "rate_limit_error",
-                            "message": (
-                                f"Token budget exceeded ({session.tokens_used}"
-                                f"/{session.grant.token_budget}). "
-                                "Session killed by policy engine."
-                            ),
+            if config.policy_mode == "monitor":
+                if action != ThrottleAction.NONE:
+                    logger.info(
+                        "policy.monitor",
+                        action=action.value,
+                        model=model,
+                        budget_pct=round(session.budget_percentage, 1),
+                    )
+            else:  # enforce
+                if action == ThrottleAction.KILL_SESSION:
+                    logger.warning(
+                        "proxy.rejected", model=model, budget_pct=session.budget_percentage
+                    )
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "type": "error",
+                            "error": {
+                                "type": "rate_limit_error",
+                                "message": (
+                                    f"Token budget exceeded ({session.tokens_used}"
+                                    f"/{session.grant.token_budget}). "
+                                    "Session killed by policy engine."
+                                ),
+                            },
                         },
-                    },
-                )
-            if action == ThrottleAction.DOWNGRADE_MODEL:
-                original = body.get("model")
-                body["model"] = DOWNGRADE_MODEL
-                model = DOWNGRADE_MODEL
-                logger.info("proxy.downgrade", original=original, downgraded_to=DOWNGRADE_MODEL)
-            if action == ThrottleAction.REDUCE_PAGES:
-                logger.info(
-                    "proxy.warning",
-                    detail="Budget 90-100%, approaching limit",
-                    budget_pct=round(session.budget_percentage, 1),
-                )
+                    )
+                if action == ThrottleAction.DOWNGRADE_MODEL:
+                    original = body.get("model")
+                    body["model"] = DOWNGRADE_MODEL
+                    model = DOWNGRADE_MODEL
+                    logger.info(
+                        "proxy.downgrade", original=original, downgraded_to=DOWNGRADE_MODEL
+                    )
+                if action == ThrottleAction.REDUCE_PAGES:
+                    logger.info(
+                        "proxy.warning",
+                        detail="Budget 90-100%, approaching limit",
+                        budget_pct=round(session.budget_percentage, 1),
+                    )
 
         logger.info("proxy.request", model=model, stream=is_stream)
 
@@ -118,9 +131,14 @@ def create_app(
     @app.get("/status")
     async def status() -> dict:
         if not session:
-            return {"status": "no_radius_session", "mode": "bare"}
+            return {
+                "status": "no_radius_session",
+                "mode": "bare",
+                "policy_mode": config.policy_mode,
+            }
         return {
             "status": "active",
+            "policy_mode": config.policy_mode,
             "session_id": session.session_id,
             "username": session.username,
             "model_allowed": session.grant.model_allowed,
