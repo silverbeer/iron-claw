@@ -215,6 +215,41 @@ def proxy(
 
 
 @app.command()
+def monitor(
+    log_file: Annotated[
+        Path | None,
+        typer.Argument(help="Log file to follow (omit to read from stdin)"),
+    ] = None,
+    lines: Annotated[
+        int, typer.Option("--lines", "-n", help="Max log lines to keep in view")
+    ] = 200,
+    from_start: Annotated[
+        bool,
+        typer.Option("--from-start", help="Read file from beginning instead of tailing"),
+    ] = False,
+) -> None:
+    """Monitor iron-claw proxy logs in real-time with colour-coded insights.
+
+    Reads JSON log lines (produced by --json-logs) from a file or stdin and
+    renders a live split-panel TUI: session stats on the left, colourised event
+    stream on the right.
+
+    Examples::
+
+        iron-claw monitor /var/log/iron-claw.json
+        kubectl logs -f deploy/iron-claw-proxy | iron-claw monitor
+        docker compose logs -f | iron-claw monitor
+    """
+    from monitor.monitor import LogMonitor
+
+    if log_file is not None and not log_file.exists():
+        typer.echo(f"Error: log file not found: {log_file}", err=True)
+        raise typer.Exit(code=1)
+
+    LogMonitor(log_file=log_file, max_log_lines=lines, from_start=from_start).run()
+
+
+@app.command()
 def status(
     server: Annotated[str, typer.Option(help="RADIUS server")] = "localhost",
     secret: Annotated[str, typer.Option(help="RADIUS shared secret")] = "testing123",

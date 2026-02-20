@@ -33,3 +33,5 @@ terraform/grafana/.terraform/
 terraform/grafana/*.tfstate*
 terraform/grafana/.terraform.lock.hcl
 k3s/iron-claw-proxy/secret.yaml
+k3s/freeradius/secret.yaml
+k3s/freeradius/env-configmap.yaml
