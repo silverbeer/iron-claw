@@ -1,0 +1,272 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: freeradius-raddb
+  namespace: iron-claw
+data:
+  clients.conf: |
+    #
+    #	RADIUS clients configuration for iron-claw (K3s)
+    #
+
+    client localhost {
+    	ipaddr = 127.0.0.1
+    	secret = testing123
+    	nastype = other
+    	shortname = iron-claw
+    }
+
+    client localhost_ipv6 {
+    	ipv6addr = ::1
+    	secret = testing123
+    	nastype = other
+    	shortname = iron-claw-v6
+    }
+
+    # K8s pod network — allows iron-claw-proxy to reach FreeRADIUS
+    client k8s_pods {
+    	ipaddr = 10.0.0.0/8
+    	secret = testing123
+    	nastype = other
+    	shortname = iron-claw-k8s
+    }
+
+  sql: |
+    #
+    #	SQL module configuration — rlm_sql_postgresql -> Supabase
+    #
+
+    sql {
+    	driver = "rlm_sql_postgresql"
+
+    	dialect = "postgresql"
+
+    	server = "$ENV{RADIUS_SQL_SERVER}"
+    	port = "$ENV{RADIUS_SQL_PORT}"
+    	login = "$ENV{RADIUS_SQL_LOGIN}"
+    	password = "$ENV{RADIUS_SQL_PASSWORD}"
+    	radius_db = "$ENV{RADIUS_SQL_DATABASE}"
+
+    	acct_table1 = "radacct"
+    	acct_table2 = "radacct"
+    	postauth_table = "radpostauth"
+    	authcheck_table = "radcheck"
+    	groupcheck_table = "radgroupcheck"
+    	authreply_table = "radreply"
+    	groupreply_table = "radgroupreply"
+    	usergroup_table = "radusergroup"
+
+    	delete_stale_sessions = yes
+
+    	pool {
+    		start = 1
+    		min = 1
+    		max = 4
+    		spare = 1
+    		uses = 0
+    		retry_delay = 30
+    		lifetime = 0
+    		idle_timeout = 60
+    	}
+
+    	read_clients = no
+
+    	client_table = "nas"
+
+    	group_attribute = "SQL-Group"
+
+    	$INCLUDE ${modconfdir}/sql/main/${dialect}/queries.conf
+    }
+
+  sqlcounter: |
+    #
+    #	SQL counter module — monthly token budget enforcement
+    #
+
+    sqlcounter monthly_token_counter {
+    	sql_module_instance = sql
+
+    	dialect = postgresql
+
+    	counter_name = MT-Monthly-Used
+    	check_name = MT-Monthly-Budget
+
+    	key = User-Name
+
+    	reset = monthly
+
+    	query = "\
+    		SELECT COALESCE(SUM(acctinputoctets), 0) \
+    		FROM radacct \
+    		WHERE username = '%{%{Stripped-User-Name}:-%{User-Name}}' \
+    		AND acctstarttime >= DATE_TRUNC('month', NOW())"
+    }
+
+  queries.conf: |
+    #
+    #	PostgreSQL queries for FreeRADIUS rlm_sql
+    #
+
+    sql_user_name = "%{User-Name}"
+
+    authorize_check_query = "\
+    	SELECT id, username, attribute, value, op \
+    	FROM ${authcheck_table} \
+    	WHERE username = '%{SQL-User-Name}' \
+    	ORDER BY id"
+
+    authorize_reply_query = "\
+    	SELECT id, username, attribute, value, op \
+    	FROM ${authreply_table} \
+    	WHERE username = '%{SQL-User-Name}' \
+    	ORDER BY id"
+
+    authorize_group_check_query = "\
+    	SELECT ${groupcheck_table}.id, ${groupcheck_table}.groupname, \
+    	${groupcheck_table}.attribute, ${groupcheck_table}.value, ${groupcheck_table}.op \
+    	FROM ${groupcheck_table}, ${usergroup_table} \
+    	WHERE ${usergroup_table}.username = '%{SQL-User-Name}' \
+    	AND ${usergroup_table}.groupname = ${groupcheck_table}.groupname \
+    	ORDER BY ${groupcheck_table}.id"
+
+    authorize_group_reply_query = "\
+    	SELECT ${groupreply_table}.id, ${groupreply_table}.groupname, \
+    	${groupreply_table}.attribute, ${groupreply_table}.value, ${groupreply_table}.op \
+    	FROM ${groupreply_table}, ${usergroup_table} \
+    	WHERE ${usergroup_table}.username = '%{SQL-User-Name}' \
+    	AND ${usergroup_table}.groupname = ${groupreply_table}.groupname \
+    	ORDER BY ${groupreply_table}.id"
+
+    group_membership_query = "\
+    	SELECT groupname \
+    	FROM ${usergroup_table} \
+    	WHERE username = '%{SQL-User-Name}' \
+    	ORDER BY priority"
+
+    simul_count_query = "\
+    	SELECT COUNT(*) \
+    	FROM ${acct_table1} \
+    	WHERE username = '%{SQL-User-Name}' \
+    	AND acctstoptime IS NULL"
+
+    simul_verify_query = "\
+    	SELECT radacctid, acctsessionid, username, nasipaddress, nasportid, \
+    	framedipaddress, callingstationid, framedprotocol \
+    	FROM ${acct_table1} \
+    	WHERE username = '%{SQL-User-Name}' \
+    	AND acctstoptime IS NULL"
+
+    accounting {
+
+    	reference = "%{tolower:type.%{Acct-Status-Type}.query}"
+
+    	type {
+    		start {
+    			query = "\
+    				INSERT INTO ${....acct_table1} \
+    					(acctsessionid, acctuniqueid, username, nasipaddress, \
+    					nasportid, nasporttype, acctstarttime, acctupdatetime, \
+    					acctstoptime, acctsessiontime, acctauthentic, \
+    					connectinfo_connect, acctinputoctets, acctoutputoctets, \
+    					calledstationid, callingstationid, acctterminatecause, \
+    					servicetype, framedprotocol, framedipaddress) \
+    				VALUES \
+    					('%{Acct-Session-Id}', '%{Acct-Unique-Session-Id}', \
+    					'%{SQL-User-Name}', '%{NAS-IP-Address}', \
+    					'%{%{NAS-Port-ID}:-%{NAS-Port}}', '%{NAS-Port-Type}', \
+    					TO_TIMESTAMP(%{integer:Event-Timestamp}), \
+    					TO_TIMESTAMP(%{integer:Event-Timestamp}), \
+    					NULL, 0, '%{Acct-Authentic}', \
+    					'%{Connect-Info}', 0, 0, \
+    					'%{Called-Station-Id}', '%{Calling-Station-Id}', '', \
+    					'%{Service-Type}', '%{Framed-Protocol}', \
+    					'%{Framed-IP-Address}')"
+    		}
+
+    		interim-update {
+    			query = "\
+    				UPDATE ${....acct_table1} \
+    				SET acctupdatetime = TO_TIMESTAMP(%{integer:Event-Timestamp}), \
+    					acctsessiontime = '%{Acct-Session-Time}', \
+    					acctinputoctets = '%{%{Acct-Input-Gigawords}:-0}' * \
+    						1073741824 + '%{%{Acct-Input-Octets}:-0}', \
+    					acctoutputoctets = '%{%{Acct-Output-Gigawords}:-0}' * \
+    						1073741824 + '%{%{Acct-Output-Octets}:-0}', \
+    					framedipaddress = '%{Framed-IP-Address}' \
+    				WHERE acctuniqueid = '%{Acct-Unique-Session-Id}'"
+    		}
+
+    		stop {
+    			query = "\
+    				UPDATE ${....acct_table1} \
+    				SET acctstoptime = TO_TIMESTAMP(%{integer:Event-Timestamp}), \
+    					acctsessiontime = '%{Acct-Session-Time}', \
+    					acctinputoctets = '%{%{Acct-Input-Gigawords}:-0}' * \
+    						1073741824 + '%{%{Acct-Input-Octets}:-0}', \
+    					acctoutputoctets = '%{%{Acct-Output-Gigawords}:-0}' * \
+    						1073741824 + '%{%{Acct-Output-Octets}:-0}', \
+    					acctterminatecause = '%{Acct-Terminate-Cause}', \
+    					connectinfo_stop = '%{Connect-Info}' \
+    				WHERE acctuniqueid = '%{Acct-Unique-Session-Id}'"
+    		}
+    	}
+    }
+
+    post-auth {
+    	query = "\
+    		INSERT INTO ${..postauth_table} \
+    			(username, pass, reply, authdate) \
+    		VALUES \
+    			('%{SQL-User-Name}', \
+    			'%{%{User-Password}:-%{Chap-Password}}', \
+    			'%{reply:Packet-Type}', now())"
+    }
+
+  default: |
+    #
+    #	Default virtual server for iron-claw FreeRADIUS
+    #
+
+    server default {
+    	listen {
+    		type = auth
+    		ipaddr = *
+    		port = 1812
+    	}
+
+    	listen {
+    		type = acct
+    		ipaddr = *
+    		port = 1813
+    	}
+
+    	authorize {
+    		filter_username
+    		preprocess
+    		sql
+    		monthly_token_counter
+    		pap
+    	}
+
+    	authenticate {
+    		Auth-Type PAP {
+    			pap
+    		}
+    	}
+
+    	preacct {
+    		preprocess
+    		acct_unique
+    	}
+
+    	accounting {
+    		sql
+    	}
+
+    	post-auth {
+    		sql
+    		Post-Auth-Type REJECT {
+    			sql
+    		}
+    	}
+    }

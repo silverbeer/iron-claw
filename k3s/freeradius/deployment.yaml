@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: freeradius
+  namespace: iron-claw
+  labels:
+    app: freeradius
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: freeradius
+  template:
+    metadata:
+      labels:
+        app: freeradius
+    spec:
+      containers:
+        - name: freeradius
+          image: ghcr.io/silverbeer/iron-claw:latest
+          ports:
+            - containerPort: 1812
+              protocol: UDP
+            - containerPort: 1813
+              protocol: UDP
+          envFrom:
+            - configMapRef:
+                name: freeradius-env
+            - secretRef:
+                name: freeradius-secrets
+          volumeMounts:
+            - name: raddb-config
+              mountPath: /etc/raddb/clients.conf
+              subPath: clients.conf
+            - name: raddb-config
+              mountPath: /etc/raddb/mods-available/sql
+              subPath: sql
+            - name: raddb-config
+              mountPath: /etc/raddb/mods-available/sqlcounter
+              subPath: sqlcounter
+            - name: raddb-config
+              mountPath: /etc/raddb/mods-config/sql/main/postgresql/queries.conf
+              subPath: queries.conf
+            - name: raddb-config
+              mountPath: /etc/raddb/sites-available/default
+              subPath: default
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+      volumes:
+        - name: raddb-config
+          configMap:
+            name: freeradius-raddb
