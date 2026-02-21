@@ -45,6 +45,7 @@ def create_app(
                 "proxy.radius.ready",
                 token_budget=session.grant.token_budget,
                 model_allowed=session.grant.model_allowed,
+                policy_mode=config.policy_mode,
             )
 
         yield

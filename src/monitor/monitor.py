@@ -253,6 +253,8 @@ class MonitorState:
                 self.token_budget = int(record.get("token_budget", self.token_budget))
                 if m := record.get("model_allowed"):
                     self.last_model = m
+                if pm := record.get("policy_mode"):
+                    self.policy_mode = pm
 
             case "proxy.request":
                 self.total_requests += 1
@@ -334,6 +336,15 @@ def _make_stats_panel(state: MonitorState) -> Panel:
     if state.last_model:
         short = state.last_model.replace("claude-", "").replace("-latest", "")
         g.add_row("Model", f"[bright_blue]{short}[/]")
+
+    if state.policy_mode:
+        mode_styles = {
+            "enforce": "bold bright_red",
+            "monitor": "bold bright_yellow",
+            "off": "dim",
+        }
+        style = mode_styles.get(state.policy_mode, "white")
+        g.add_row("Policy", f"[{style}]{state.policy_mode.upper()}[/]")
 
     if state.session_start is not None:
         elapsed = time.monotonic() - state.session_start
