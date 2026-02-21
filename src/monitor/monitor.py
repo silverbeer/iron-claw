@@ -56,6 +56,7 @@ EVENT_STYLE: dict[str, str] = {
     "radius.acct.start": "green",
     "radius.acct.interim": "dim green",
     "radius.acct.stop": "dim yellow",
+    "proxy.started": "bold bright_green",
     "proxy.radius.ready": "bold bright_green",
     "proxy.request": "bright_blue",
     "proxy.response": "cyan",
@@ -248,6 +249,10 @@ class MonitorState:
             case "radius.acct.stop":
                 self.tokens_used = int(record.get("tokens_used", self.tokens_used))
                 self.session_active = False
+
+            case "proxy.started":
+                if pm := record.get("policy_mode"):
+                    self.policy_mode = pm
 
             case "proxy.radius.ready":
                 self.token_budget = int(record.get("token_budget", self.token_budget))

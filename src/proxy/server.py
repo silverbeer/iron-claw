@@ -38,6 +38,8 @@ def create_app(
     async def lifespan(app: FastAPI):
         nonlocal session, radius_client
 
+        logger.info("proxy.started", policy_mode=config.policy_mode)
+
         if radius_config and username and password:
             radius_client = RadiusSessionClient(radius_config)
             session = _radius_start(radius_client, username, password)
