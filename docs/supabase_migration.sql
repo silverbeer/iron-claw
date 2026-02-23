@@ -134,3 +134,19 @@ INSERT INTO radreply (username, attribute, op, value) VALUES
     ('iron-claw-scraper', 'MT-Max-LLM-Calls',      ':=', '100'),
     ('iron-claw-scraper', 'MT-Output-Queue',       ':=', 'match_processing'),
     ('iron-claw-scraper', 'MT-Monthly-Budget',     ':=', '500000');
+
+-- ============================================================================
+-- Seed data: iron-claw-openai user (OpenAI / ChatGPT models)
+-- ============================================================================
+
+-- Authentication: Cleartext-Password for PAP
+INSERT INTO radcheck (username, attribute, op, value) VALUES
+    ('iron-claw-openai', 'Cleartext-Password', ':=', 'openai-secret');
+
+-- Reply attributes: standard RADIUS + MissTable VSAs
+INSERT INTO radreply (username, attribute, op, value) VALUES
+    ('iron-claw-openai', 'Session-Timeout',      ':=', '86400'),
+    ('iron-claw-openai', 'MT-Token-Budget',       ':=', '500000'),
+    ('iron-claw-openai', 'MT-Model-Allowed',      ':=', 'gpt-4o'),
+    ('iron-claw-openai', 'MT-Max-LLM-Calls',      ':=', '1000'),
+    ('iron-claw-openai', 'MT-Monthly-Budget',     ':=', '2000000');
