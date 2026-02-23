@@ -14,4 +14,6 @@ class ProxyConfig(BaseSettings):
     host: str = "127.0.0.1"
     anthropic_api_key: str = ""
     anthropic_base_url: str = "https://api.anthropic.com"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com"
     policy_mode: str = "enforce"
